@@ -24,6 +24,13 @@
 
 (require 'gnat-compiler)
 
+(cl-defstruct
+    (alire-prj
+     (:include wisi-prj)
+     (:copier nil))
+  xref-label
+  )
+
 (defun alire-get-env (project)
   "Set PROJECT slots from Alire as needed."
 
@@ -93,22 +100,36 @@
   "Return an initial wisi project for the current Alire workspace."
   (let* ((default-directory (locate-dominating-file default-directory "alire.toml"))
 	 (abs-gpr-file (expand-file-name gpr-file))
-	 (project (make-wisi-prj :name name :compile-env compile-env :file-env file-env))
-	 )
+	 (project (make-alire-prj :name name
+                                  :compile-env compile-env
+                                  :file-env file-env
+                                  :xref-label xref-label)))
 
     (alire-get-env project)
 
-    ;; We need a gnat-compiler to set compilation-search-path.
+    ;; We need a gnat-compiler to set compilation-search-path; this
+    ;; must run after alire-get-env because it uses GPR_PROJECT_PATH.
     (setf (wisi-prj-compiler project)
 	  (create-gnat-compiler
 	   :gpr-file abs-gpr-file
 	   :run-buffer-name (gnat-run-buffer-name abs-gpr-file)))
 
     (setf (wisi-prj-xref project)
-	  (funcall (intern (format "create-%s-xref" (symbol-name xref-label)))
-		   :gpr-file abs-gpr-file))
+	  (funcall (intern (format "create-%s-xref" (symbol-name xref-label)))))
+
+    (wisi-xref-parse-one (wisi-prj-xref project) project "gpr_file" abs-gpr-file)
 
     project))
+
+(cl-defmethod wisi-prj-default ((project alire-prj))
+  (let* ((gpr-file (gnat-compiler-gpr-file (wisi-prj-compiler project)))
+         (default-directory (file-name-directory gpr-file)))
+    (create-alire-project
+     :name        (wisi-prj-name project)
+     :gpr-file    gpr-file
+     :compile-env (wisi-prj-compile-env project)
+     :file-env    (wisi-prj-file-env project)
+     :xref-label  (alire-prj-xref-label project))))
 
 (provide 'gnat-alire)
 ;;; gnat-alire.el ends here
